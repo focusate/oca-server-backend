@@ -3,44 +3,46 @@
 import datetime
 
 from odoo import fields
-from odoo.tests.common import TransactionCase
+from odoo.tests.common import SavepointCase
 
 
-class TestUserRole(TransactionCase):
+class TestUserRole(SavepointCase):
 
-    def setUp(self):
-        super(TestUserRole, self).setUp()
-        self.user_model = self.env['res.users']
-        self.role_model = self.env['res.users.role']
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.user_model = cls.env['res.users']
+        cls.role_model = cls.env['res.users.role']
 
-        self.default_user = self.env.ref('base.default_user')
-        self.user_id = self.user_model.create(
+        cls.user_admin = cls.env.ref('base.user_admin')
+        cls.default_user = cls.env.ref('base.default_user')
+        cls.user_id = cls.user_model.create(
             {'name': "USER TEST (ROLES)", 'login': 'user_test_roles'})
 
         # ROLE_1
-        self.group_user_id = self.env.ref('base.group_user')
-        self.group_no_one_id = self.env.ref('base.group_no_one')
+        cls.group_user_id = cls.env.ref('base.group_user')
+        cls.group_no_one_id = cls.env.ref('base.group_no_one')
         vals = {
             'name': "ROLE_1",
             'implied_ids': [
-                (6, 0, [self.group_user_id.id, self.group_no_one_id.id])],
+                (6, 0, [cls.group_user_id.id, cls.group_no_one_id.id])],
         }
-        self.role1_id = self.role_model.create(vals)
+        cls.role1_id = cls.role_model.create(vals)
 
         # ROLE_2
         # Must have group_user in order to have sufficient groups. Check:
         # github.com/odoo/odoo/commit/c3717f3018ce0571aa41f70da4262cc946d883b4
-        self.group_multi_currency_id = self.env.ref(
+        cls.group_multi_currency_id = cls.env.ref(
             'base.group_multi_currency')
-        self.group_settings_id = self.env.ref('base.group_system')
+        cls.group_settings_id = cls.env.ref('base.group_system')
         vals = {
             'name': "ROLE_2",
             'implied_ids': [
-                (6, 0, [self.group_user_id.id,
-                        self.group_multi_currency_id.id,
-                        self.group_settings_id.id])],
+                (6, 0, [cls.group_user_id.id,
+                        cls.group_multi_currency_id.id,
+                        cls.group_settings_id.id])],
         }
-        self.role2_id = self.role_model.create(vals)
+        cls.role2_id = cls.role_model.create(vals)
 
     def test_role_1(self):
         self.user_id.write(
@@ -158,7 +160,34 @@ class TestUserRole(TransactionCase):
                 })
             ]
         })
-        user = self.user_model.create({
+        # Using normal user instead of superuser, to make sure access
+        # rights are not preventing from creating user.
+        user = self.user_model.sudo(self.user_admin).create({
+            'name': "USER TEST (DEFAULT ROLES)",
+            'login': 'user_test_default_roles'
+        })
+        roles = self.role_model.browse([self.role1_id.id, self.role2_id.id])
+        self.assertEqual(user.role_ids, roles)
+
+    def test_default_user_roles_multicompany(self):
+        """Get default roles when template user is from other company."""
+        company_2 = self.env['res.company'].create({'name': 'New Company'})
+        company_2_id = company_2.id
+        self.user_admin.write({
+            'company_ids': [(4, company_2_id)],
+            'company_id': company_2_id
+        })
+        self.default_user.write({
+            'role_line_ids': [
+                (0, 0, {
+                    'role_id': self.role1_id.id,
+                }),
+                (0, 0, {
+                    'role_id': self.role2_id.id,
+                })
+            ]
+        })
+        user = self.user_model.sudo(self.user_admin).create({
             'name': "USER TEST (DEFAULT ROLES)",
             'login': 'user_test_default_roles'
         })
